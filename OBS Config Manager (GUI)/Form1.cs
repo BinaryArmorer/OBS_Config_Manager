@@ -2,13 +2,14 @@
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Data;
+using System.Diagnostics;
 using System.Drawing;
 using System.IO;
-using static System.IO.Directory;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Windows.Forms;
+using static System.IO.Directory;
 
 namespace OBS_Config_Manager__GUI_
 {
@@ -24,19 +25,86 @@ namespace OBS_Config_Manager__GUI_
             LoadConfigList(); // Загрузка списка конфигов
         }
 
-        private void ChangeConfig()
+        private int maxLengthName = 200;
+        private string pathOBSFolderConfigs = "obs-studio";
+		private string pathOBS = @"C:\Program Files\obs-studio\bin\64bit";
+		private string pathOBSexe = @"C:\Program Files\obs-studio\bin\64bit\obs64.exe";
+
+		private void CloseOBS()
+		{
+			// Находим все процессы OBS
+			Process[] obsProcesses = Process.GetProcessesByName("obs64");
+
+			foreach (Process process in obsProcesses)
+			{
+				try
+				{
+					// Пытаемся закрыть через главное окно
+					if (!process.HasExited && process.MainWindowHandle != IntPtr.Zero)
+					{
+						process.CloseMainWindow();
+
+						// Ждем, пока закроется корректно
+						while (!process.HasExited)
+						{
+							System.Threading.Thread.Sleep(100);
+						}
+
+						Console.WriteLine("OBS корректно закрыт");
+					}
+				}
+				catch
+				{
+					// Игнорируем ошибки, если процесс уже закрыт
+				}
+				finally
+				{
+					process.Dispose();
+				}
+			}
+		}
+
+        private void OpenOBS()
+        {
+            if (checkBoxAutoRunObs.Checked)
+            {
+				var startInfo = new ProcessStartInfo
+				{
+					FileName = pathOBSexe,
+					WorkingDirectory = pathOBS,
+					UseShellExecute = true
+				};
+
+				Process.Start(startInfo);
+			}
+		}
+
+		private void ChangeConfig()
         {
             if (listBoxConfigsList.SelectedItems.Count != 0)
             {
-                string ChangeConfig = listBoxConfigsList.SelectedItem.ToString();
+                CloseOBS();
 
-                if (Exists($"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/obs-studio"))
+				string ChangeConfig = listBoxConfigsList.SelectedItem.ToString();
+
+				if (Exists($"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/{pathOBSFolderConfigs}"))
+				{
+					Directory.Delete($"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/{pathOBSFolderConfigs}", true);
+				}
+
+				CopyDir($"configs/{ChangeConfig}", $"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/{pathOBSFolderConfigs}");
+
+                if (checkBoxCloseManager.Checked == false)
                 {
-                    Directory.Delete($"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/obs-studio", true);
-                }
+					MessageBox.Show($"Конфиг {ChangeConfig} успешно применён!");
+				}
+                else if (checkBoxCloseManager.Checked == true)
+                {
+					this.Close();
+				}
 
-                CopyDir($"configs/{ChangeConfig}", $"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/obs-studio");
-            }
+                OpenOBS();
+			}
             else
             {
                 MessageBox.Show("Выберите нужный профиль!");
@@ -49,7 +117,14 @@ namespace OBS_Config_Manager__GUI_
         {
             listBoxConfigsList.Items.Clear();
 
-            string[] configs = new string[Directory.GetDirectories("configs").Count()];
+			if (Directory.Exists("configs") == false)
+			{
+                Directory.CreateDirectory("configs");
+                CopyDir($"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/{pathOBSFolderConfigs}", "configs/default-config");
+                MessageBox.Show("Ваш установленный в obs конфиг, скопирован и назван default-config");
+			}
+
+			string[] configs = new string[Directory.GetDirectories("configs").Count()];
 
             for (int i = 0; i < configs.Length; i++)
             {
@@ -66,17 +141,21 @@ namespace OBS_Config_Manager__GUI_
 
         private void CopyDefaultConfig() // Сохранение default-config
         {
-            DialogResult result = MessageBox.Show("Вы уверенны, что хотите удалить ваш начальный конфиг, заменив его на текущий?", "", MessageBoxButtons.YesNo);
-            
+            DialogResult result = MessageBox.Show("Вы уверенны, что хотите удалить ваш \"default-config\", заменив его на текущий установленный в obs?", "", MessageBoxButtons.YesNo);
+
             if (result == DialogResult.Yes)
             {
-                if (Directory.Exists("configs/default-config") == true)
+				CloseOBS();
+
+				if (Directory.Exists("configs/default-config") == true)
                 {
                     Directory.Delete("configs/default-config", true);
                 }
 
-                CopyDir($"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/obs-studio", "configs/default-config");
-            }
+                CopyDir($"{Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData)}/{pathOBSFolderConfigs}", "configs/default-config");
+
+				MessageBox.Show("Успешно!");
+			}
             else if (result == DialogResult.No)
             {
                 return;
@@ -130,10 +209,19 @@ namespace OBS_Config_Manager__GUI_
             }
         }
 
-        private void CreateConfig(string configName)
+		private void checkBoxAutoRunObs_CheckedChanged(object sender, EventArgs e)
+		{
+
+		}
+
+		private void CreateConfig(string configName)
         {
+            CloseOBS();
+
             CopyDir("configs/default-config", $"configs/{configName}");
-        }
+
+			MessageBox.Show("Успешно!");
+		}
 
         private void btApplyConfig_Click(object sender, EventArgs e)
         {
